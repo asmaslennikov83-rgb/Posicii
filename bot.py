@@ -1,3 +1,21 @@
+if __name__ == '__main__' and not __package__:
+    # Hosts may flatten the uploaded folder to /app and launch `python -m bot`.
+    # Register this directory as the package before loading the real entry point.
+    import importlib.util
+    from pathlib import Path
+    import sys
+
+    if 'wb_positions' not in sys.modules:
+        _root = Path(__file__).resolve().parent
+        _spec = importlib.util.spec_from_file_location(
+            'wb_positions', _root / '__init__.py', submodule_search_locations=[str(_root)])
+        _package = importlib.util.module_from_spec(_spec)
+        sys.modules['wb_positions'] = _package
+        _spec.loader.exec_module(_package)
+    from wb_positions.__main__ import main
+    main()
+    raise SystemExit(0)
+
 from concurrent.futures import ThreadPoolExecutor
 import logging
 from queue import Queue, Empty
@@ -158,3 +176,8 @@ class Bot:
             for api in self.apis.values():
                 api.close()
             self.telegram.close()
+
+
+if __name__ == '__main__':
+    from .__main__ import main
+    main()
