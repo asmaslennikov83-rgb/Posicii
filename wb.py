@@ -76,7 +76,11 @@ class WB:
             for card in page:
                 if not isinstance(card, dict) or not card.get('nmID'):
                     raise WBError('В каталоге отсутствует артикул WB')
-                cards[int(card['nmID'])] = card
+                try:
+                    nm_id = int(card['nmID'])
+                except (ValueError, TypeError):
+                    raise WBError('WB вернул неверный формат артикула в каталоге') from None
+                cards[nm_id] = card
             total = next_cursor.get('total')
             if not isinstance(total, int):
                 raise WBError('В каталоге отсутствует счётчик страниц')
@@ -96,7 +100,8 @@ class WB:
             'nmIds': [nm_id], 'topOrderBy': 'openCard',
             'includeSubstitutedSKUs': False, 'includeSearchTexts': True,
             'orderBy': {'field': 'openCard', 'mode': 'desc'}, 'limit': limit})
-        items = value.get('data', {}).get('items')
+        data = value.get('data')
+        items = data.get('items') if isinstance(data, dict) else None
         if not isinstance(items, list):
             raise WBError('Изменился формат поисковой аналитики WB')
         result = []

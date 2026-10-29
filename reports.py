@@ -18,8 +18,20 @@ def period(now=None):
 
 
 def barcodes(card):
-    return {str(sku).strip() for size in card.get('sizes', [])
-            for sku in size.get('skus', []) if str(sku).strip()}
+    sizes = card.get('sizes') or []
+    if not isinstance(sizes, list):
+        raise WBError('WB вернул неверный формат размеров карточки')
+    result = set()
+    for size in sizes:
+        if not isinstance(size, dict):
+            raise WBError('WB вернул неверный формат размера карточки')
+        codes = size.get('skus') or []
+        if not isinstance(codes, list):
+            raise WBError('WB вернул неверный формат списка ШК')
+        for sku in codes:
+            if sku is not None and str(sku).strip():
+                result.add(str(sku).strip())
+    return result
 
 
 def resolve(catalogs, query):

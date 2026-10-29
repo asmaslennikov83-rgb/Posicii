@@ -26,6 +26,7 @@ from .reports import build_report, period, resolve
 from .telegram import Telegram, TelegramError
 from .wb import WB, WBError
 from .version import VERSION_LABEL
+from .diagnostics import failure
 
 LOG = logging.getLogger('wb_positions')
 
@@ -104,6 +105,8 @@ class Bot:
                     catalogs[account.key] = futures[account.key].result()
                 except WBError as error:
                     failures[account.key] = str(error)
+                except Exception as error:
+                    failures[account.key] = failure(LOG, 'каталог кабинета ' + account.key, error)
         matched = resolve(catalogs, query)
 
         def collect(account):
@@ -127,10 +130,9 @@ class Bot:
                     self.safe_message(chat, f'{account.name}: файл создан, но доставка не удалась. Файл сохранён на сервере.')
                 except WBError as error:
                     self.safe_message(chat, f'{account.name}: {error}')
-                except Exception:
-                    # Never output raw HTTP exception URLs or credentials to logs.
-                    LOG.error('Ошибка формирования файла кабинета %s', account.key)
-                    self.safe_message(chat, f'{account.name}: ошибка формирования файла; проверьте свободное место и настройки.')
+                except Exception as error:
+                    detail = failure(LOG, 'отчёт кабинета ' + account.key, error)
+                    self.safe_message(chat, f'{account.name}: {detail}')
 
     def worker(self):
         while not self.stopping.is_set():
@@ -140,9 +142,9 @@ class Bot:
                 continue
             try:
                 self.run_job(chat, query, dates)
-            except Exception:
-                LOG.error('Не удалось завершить задание')
-                self.safe_message(chat, 'Не удалось завершить задание. Повторите запрос.')
+            except Exception as error:
+                detail = failure(LOG, 'задание', error)
+                self.safe_message(chat, 'Не удалось завершить задание: ' + detail)
             finally:
                 with self.lock:
                     self.busy.discard(chat)
