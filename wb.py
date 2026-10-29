@@ -13,8 +13,6 @@ class WB:
     def __init__(self, account, interval=21, client=None, sleep=time.sleep, clock=time.monotonic):
         self.client = client or httpx.Client(timeout=90, follow_redirects=False)
         self.headers = {'Authorization': account.token}
-        if account.secret:
-            self.headers['X-Client-Secret'] = account.secret
         self.interval = interval
         self.sleep, self.clock = sleep, clock
         self.last = {}

@@ -7,6 +7,7 @@ import time
 from .reports import build_report, period, resolve
 from .telegram import Telegram, TelegramError
 from .wb import WB, WBError
+from .version import VERSION_LABEL
 
 LOG = logging.getLogger('wb_positions')
 
@@ -33,6 +34,9 @@ class Bot:
             return
         chat = message['chat']['id']
         text = message.get('text', '').strip()
+        if text.startswith('Версия сборки:') or text == '/version':
+            self.telegram.message(chat, VERSION_LABEL)
+            return
         if not text:
             self.telegram.message(chat, 'Пришлите ШК или артикул продавца текстом.')
             return

@@ -2,13 +2,15 @@ import json
 import time
 
 import httpx
+from .version import VERSION_LABEL
 
 
 class TelegramError(Exception):
     pass
 
 
-KEYBOARD = {'keyboard': [[{'text': 'Сформировать отчёты'}], [{'text': 'Изменить товар'}]],
+KEYBOARD = {'keyboard': [[{'text': 'Сформировать отчёты'}], [{'text': 'Изменить товар'}],
+                        [{'text': VERSION_LABEL}]],
             'resize_keyboard': True}
 
 

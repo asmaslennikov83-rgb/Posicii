@@ -14,7 +14,6 @@ class Account:
     key: str
     name: str
     token: str = field(repr=False)
-    secret: str = field(default='', repr=False)
 
 
 @dataclass(frozen=True)
@@ -39,8 +38,7 @@ class Config:
         if not token or not allowed or any(x <= 0 for x in allowed):
             raise ValueError('Заполните TELEGRAM_BOT_TOKEN и ALLOWED_USER_IDS в wb_positions/.env')
         accounts = tuple(Account(str(i), os.getenv(f'WB_{i}_NAME', f'Кабинет {i}'),
-                                 os.getenv(f'WB_{i}_TOKEN', '').strip(),
-                                 os.getenv(f'WB_{i}_CLIENT_SECRET', '').strip()) for i in (1, 2))
+                                 os.getenv(f'WB_{i}_TOKEN', '').strip()) for i in (1, 2))
         if any(not a.token for a in accounts):
             raise ValueError('Заполните WB_1_TOKEN и WB_2_TOKEN в wb_positions/.env')
         limit = int(os.getenv('WB_QUERY_LIMIT', '30'))
