@@ -6,6 +6,7 @@ import math
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 from .config import MSK
 from .wb import WBError
@@ -168,6 +169,9 @@ def text_cell(cell, value):
 def build_report(account, query, cards, api, data_dir: Path, start, end, limit=30):
     folder = data_dir / 'imports' / account.key
     warnings, groups, raw = [], [], []
+    days = [end - timedelta(days=i) for i in range(7)]
+    headers = HEADERS[:8] + [day.strftime('%d.%m.%Y') for day in days] + HEADERS[8:]
+    daily = {}
     try:
         positions = read_positions(folder)
     except WBError as error:
@@ -187,6 +191,18 @@ def build_report(account, query, cards, api, data_dir: Path, start, end, limit=3
                 warnings.append(f'{nm_id}: топ частотности рассчитан по доступной выборке, не по всем запросам')
             raw.extend(rows)
             groups.append((card, top(rows, 'openCard'), top(rows, 'frequency'), coverage, source, ''))
+            texts = list(dict.fromkeys(row['text'] for row in top(rows, 'openCard') + top(rows, 'frequency')))
+            if texts:
+                try:
+                    daily[nm_id] = api.daily_positions(nm_id, texts, days[-1], days[0])
+                    if not isinstance(daily[nm_id], dict):
+                        raise WBError('Изменился формат дневных позиций WB')
+                    if any(daily[nm_id].get(text.strip().casefold(), {}).get(day.isoformat()) is None
+                           for text in texts for day in days):
+                        warnings.append(f'{nm_id}: для части запросов или дней нет дневной позиции WB; ячейки оставлены пустыми')
+                except WBError as error:
+                    daily[nm_id] = {}
+                    warnings.append(f'{nm_id}: дневные позиции не получены — {error}')
             if positions and any((nm_id, row['text'].strip().casefold()) not in positions
                                  for row in top(rows, 'openCard') + top(rows, 'frequency')):
                 warnings.append(f'{nm_id}: для части запросов нет отдельного замера позиций')
@@ -205,14 +221,14 @@ def build_report(account, query, cards, api, data_dir: Path, start, end, limit=3
         ws = book.create_sheet(title)
         notes = [f'{account.name} | Поиск: {query} | {start:%d.%m.%Y}–{end:%d.%m.%Y}',
                  'Частотность: по доступной выборке, если полный источник не подключён. ШК не суммируются.',
-                 'Средняя позиция WB не является органической. Отдельные позиции — замер с указанными датой и регионом.',
+                 'Даты после средней позиции — позиции WB за отдельные дни; пусто = нет данных. Раздельные позиции — отдельный замер.',
                  'Статус: ' + ('; '.join(dict.fromkeys(warnings)) or 'Данные получены')]
         for note in notes:
             ws.append([None])
             text_cell(ws.cell(ws.max_row, 1), note)
-            ws.merge_cells(start_row=ws.max_row, start_column=1, end_row=ws.max_row, end_column=len(HEADERS))
+            ws.merge_cells(start_row=ws.max_row, start_column=1, end_row=ws.max_row, end_column=len(headers))
             ws.row_dimensions[ws.max_row].height = 42
-        ws.append(HEADERS)
+        ws.append(headers)
         for card, clicks, frequency, coverage, source, error in groups:
             selected = clicks if index == 1 else frequency
             if not selected:
@@ -220,11 +236,13 @@ def build_report(account, query, cards, api, data_dir: Path, start, end, limit=3
             for rank, row in enumerate(selected, 1):
                 nm_id = int(card['nmID'])
                 pos = positions.get((nm_id, row['text'].strip().casefold()), {}) if row else {}
+                daily_row = daily.get(nm_id, {}).get(row['text'].strip().casefold(), {}) if row else {}
                 values = [rank if row else None, str(nm_id), str(card.get('vendorCode', '')),
                           '\n'.join(sorted(barcodes(card))), row['text'] if row else '',
                           metric(row, 'openCard') if row else None,
                           metric(row, 'frequency') if row else None,
                           metric(row, 'avgPosition') if row else None,
+                          *[daily_row.get(day.isoformat()) for day in days],
                           pos.get('organic_position'), pos.get('ad_position'), pos.get('measured_at', ''),
                           pos.get('region', ''), pos.get('source', 'Не подключён'), start.isoformat(), end.isoformat(),
                           coverage, source, error or ('Нет запросов с этим показателем' if not row else '')]
@@ -232,16 +250,20 @@ def build_report(account, query, cards, api, data_dir: Path, start, end, limit=3
                 for col, value in enumerate(values, 1):
                     text_cell(ws.cell(ws.max_row, col), value)
         ws.freeze_panes = 'F6'
-        ws.auto_filter.ref = f'A5:R{max(5, ws.max_row)}'
+        ws.auto_filter.ref = f'A5:{get_column_letter(len(headers))}{max(5, ws.max_row)}'
         for cell in ws[5]:
             cell.fill = PatternFill('solid', fgColor='17365D')
             cell.font = Font(color='FFFFFF', bold=True)
             cell.alignment = Alignment(wrap_text=True, vertical='center')
         ws.row_dimensions[5].height = 48
-        for col in 'ABCDEFGHIJKLMNOPQR':
-            ws.column_dimensions[col].width = 22
-        for col in ('D', 'E', 'P', 'Q', 'R'):
+        for col in range(1, len(headers) + 1):
+            ws.column_dimensions[get_column_letter(col)].width = 22
+        for col in ('D', 'E', 'W', 'X', 'Y'):
             ws.column_dimensions[col].width = 40
+        for col in range(9, 16):
+            ws.column_dimensions[get_column_letter(col)].width = 15
+            for cells in ws.iter_rows(min_row=6, min_col=col, max_col=col):
+                cells[0].number_format = '0.##'
         for cells in ws.iter_rows(min_row=6):
             for cell in cells:
                 cell.alignment = Alignment(vertical='top', wrap_text=True)
@@ -252,5 +274,6 @@ def build_report(account, query, cards, api, data_dir: Path, start, end, limit=3
     book.save(file)
     # Raw responses contain no request headers or API tokens.
     file.with_suffix('.json').write_text(json.dumps({'query': query, 'start': start.isoformat(),
-        'end': end.isoformat(), 'warnings': warnings, 'queries': raw}, ensure_ascii=False, indent=2), encoding='utf-8')
+        'end': end.isoformat(), 'warnings': warnings, 'queries': raw,
+        'daily_positions': daily}, ensure_ascii=False, indent=2), encoding='utf-8')
     return file, list(dict.fromkeys(warnings))

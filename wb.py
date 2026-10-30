@@ -1,4 +1,6 @@
 import time
+from datetime import date
+import math
 import httpx
 
 HOSTS = {'content': 'https://content-api.wildberries.ru',
@@ -109,4 +111,45 @@ class WB:
             if not isinstance(row, dict) or not isinstance(row.get('text'), str) or row.get('nmId') != nm_id:
                 raise WBError('WB вернул некорректные запросы или чужой артикул')
             result.append(row)
+        return result
+
+    def daily_positions(self, nm_id, texts, start, end):
+        if not texts:
+            return {}
+        if not 0 <= (end - start).days <= 6 or len(texts) > 30:
+            raise ValueError('Дневные позиции: период до 7 дней, до 30 запросов')
+        value = self.request('analytics', '/api/v2/search-report/product/orders', {
+            'period': {'start': start.isoformat(), 'end': end.isoformat()},
+            'nmId': nm_id, 'searchTexts': texts})
+        data = value.get('data')
+        items = data.get('items') if isinstance(data, dict) else None
+        if not isinstance(items, list):
+            raise WBError('Изменился формат дневных позиций WB')
+        expected = {text.strip().casefold() for text in texts}
+        result = {}
+        for item in items:
+            if not isinstance(item, dict) or not isinstance(item.get('text'), str):
+                raise WBError('WB вернул неверный формат запроса в дневных позициях')
+            text = item['text'].strip().casefold()
+            if text not in expected or not isinstance(item.get('dateItems'), list):
+                raise WBError('WB вернул неожиданный запрос или формат дат в дневных позициях')
+            dates = result.setdefault(text, {})
+            for entry in item['dateItems']:
+                try:
+                    day = date.fromisoformat(entry['dt'])
+                    position = entry.get('avgPosition')
+                except (ValueError, TypeError, KeyError, AttributeError):
+                    raise WBError('WB вернул неверную дату дневной позиции') from None
+                if not start <= day <= end:
+                    raise WBError('WB вернул дневную позицию вне запрошенного периода')
+                if position is not None:
+                    if (isinstance(position, bool) or not isinstance(position, (int, float))
+                            or not math.isfinite(position) or position < 0):
+                        raise WBError('WB вернул неверное значение дневной позиции')
+                    if position == 0:
+                        position = None
+                key = day.isoformat()
+                if key in dates and dates[key] != position:
+                    raise WBError('WB вернул противоречивые дневные позиции')
+                dates[key] = position
         return result
